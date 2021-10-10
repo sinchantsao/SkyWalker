@@ -2,7 +2,7 @@
 
 """ 出现此类错误应该是系统层面的错误 """
 
-from . import _CodeNumException
+from X1 import _CodeNumException
 
 
 class BaseSupport(_CodeNumException):
