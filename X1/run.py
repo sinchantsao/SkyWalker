@@ -33,5 +33,10 @@ class RetryException(_CodeNumException):
     """
     运行过程中多次重试运行无果导致的错误
     """
+    _ExceptInfo = "Exception ({exp}) raised after {retry_times} tries."
+
     def __init__(self, *args, **kwargs):
         super(RetryException, self).__init__(5100, *args, **kwargs)
+
+    def __unicode__(self):
+        return self._ExceptInfo
