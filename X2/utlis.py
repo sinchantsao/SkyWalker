@@ -614,13 +614,3 @@ def wait_child_process(signum, frame):
             _logger.warning('current process has no existing unwaited-for child processes.')
         else:
             raise
-
-
-if __name__ == '__main__':
-    def error():
-        raise ValueError
-
-    retry(error, 3, 2)
-    # from pprint import pprint
-    # pprint(dir(error))
-
