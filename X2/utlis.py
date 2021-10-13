@@ -37,7 +37,7 @@ from io import BytesIO
 from six import text_type
 from contextlib import contextmanager
 from X1.stand import MethodStandError, ParamStandError
-from X1.run import UnexpectedCompatible
+from X1.run import UnexpectedCompatible, RetryException
 from X1.support import SysSupport
 
 DEFAULT_GLOBAL_NAME = 'GlobalSettings'
@@ -292,22 +292,30 @@ class CompFileMemFree(object):
 
 
 def get_cur_second(power=0):
-    """ 秒(s) """
+    """ 获取当前秒(s) """
     return int(time.time() * pow(10, power))
 
 
 def get_cur_millisecond():
-    """ 毫秒(ms) """
+    """ 获取当前毫秒(ms) """
     return get_cur_second(power=3)
 
 
 def get_cur_microsecond():
-    """ 微秒(µs) """
+    """ 获取当前微秒(µs) """
     return get_cur_second(power=6)
 
 
 class SettingTree(dict):
-
+    """
+    将dict数据转换成可调用对象形式取数据
+    适用于哪些场景？
+      1. 不希望看到满屏硬编码;
+      2. 对于不确定数据不想进行 try …… catch 捕获 KeyError 异常;
+      3. 对于确定字段(key)数据不希望再新增时（freeze机制);
+      4. 读取 ya(m)l / ini / cfg 配置文件;
+      5. 希望一次配置全局使用，会使用 sys.module 机制全局 import 可用;
+    """
     def __init__(__self, *args, **kwargs):
         object.__setattr__(__self, '__parent', kwargs.pop('__parent', None))
         object.__setattr__(__self, '__key', kwargs.pop('__key', None))
@@ -335,21 +343,21 @@ class SettingTree(dict):
             self[name] = value
 
     def __setitem__(self, name, value):
-        isFrozen = (hasattr(self, '__frozen') and
-                    object.__getattribute__(self, '__frozen'))
-        if isFrozen and name not in super(SettingTree, self).keys():
+        is_frozen = (hasattr(self, "__frozen") and
+                     object.__getattribute__(self, "__frozen"))
+        if is_frozen and name not in super(SettingTree, self).keys():
             raise KeyError(name)
         super(SettingTree, self).__setitem__(name, value)
         try:
-            p = object.__getattribute__(self, '__parent')
-            key = object.__getattribute__(self, '__key')
+            p = object.__getattribute__(self, "__parent")
+            key = object.__getattribute__(self, "__key")
         except AttributeError:
             p = None
             key = None
         if p is not None:
             p[key] = self
-            object.__delattr__(self, '__parent')
-            object.__delattr__(self, '__key')
+            object.__delattr__(self, "__parent")
+            object.__delattr__(self, "__key")
 
     def __add__(self, other):
         if not self.keys():
@@ -372,7 +380,7 @@ class SettingTree(dict):
         return self.__getitem__(item)
 
     def __missing__(self, name):
-        if object.__getattribute__(self, '__frozen'):
+        if object.__getattribute__(self, "__frozen"):
             raise KeyError(name)
         return self.__class__(__parent=self, __key=name)
 
@@ -454,11 +462,11 @@ class SettingTree(dict):
             self[key] = default
             return default
 
-    def freeze(self, shouldFreeze=True):
-        object.__setattr__(self, '__frozen', shouldFreeze)
+    def freeze(self, should_freeze=True):
+        object.__setattr__(self, "__frozen", should_freeze)
         for key, val in self.items():
             if isinstance(val, SettingTree):
-                val.freeze(shouldFreeze)
+                val.freeze(should_freeze)
 
     def unfreeze(self):
         self.freeze(False)
@@ -479,7 +487,7 @@ class SettingTree(dict):
                                                settings_name=settings_name)
 
     @staticmethod
-    def set_global_by_conf(path, settingsName=DEFAULT_GLOBAL_NAME):
+    def set_global_by_conf(path, settings_name=DEFAULT_GLOBAL_NAME):
         # todo
         raise NotImplemented
 
@@ -498,17 +506,17 @@ def read_from_yaml(path):
 
 def read_from_ini(path):
     import configparser
-    cfger = configparser.ConfigParser()
-    print(cfger.read(path))
+    cfg_parser = configparser.ConfigParser()
+    cfg_parser.read(path)
     format = dict()
-    d = (cfger._sections)
+    d = cfg_parser._sections
     for sec in d:
-        format[sec] = dict(cfger._defaults, **d[sec])
+        format[sec] = dict(cfg_parser._defaults, **d[sec])
         for op in format[sec]:
             if '\n' in format[sec][op]:
                 format[sec][op] = [item.replace(',', '').replace(' ', '')
                                    for item in format[sec][op].split('\n')]
-        format[sec].pop('__name__', None)
+        format[sec].pop("__name__", None)
     return format
 
 
@@ -535,13 +543,13 @@ class TriggerFn:
         )
 
 
-class Satisfya:
+class Satisfy:
 
     def __init__(self, *caps):
         self._fns = OrderedDict()
         for f in caps:
-            f = self.__mask(f)
-            self.register(f)
+            wrap_func = self.__mask(f)
+            self.register(wrap_func)
 
     @classmethod
     def __mask(cls, __f, /):
@@ -551,7 +559,8 @@ class Satisfya:
         elif callable(__f):
             fn, trigger = __f, lambda *args, **kwargs: True
         else:
-            raise ParamStandError("Params should be callable instance or one couple of function and trigger")
+            raise ParamStandError("Params should be callable instance or "
+                                  "one couple of function and trigger")
         return TriggerFn(fn, trigger)
 
     def register(self, __f, /):
@@ -565,7 +574,7 @@ class Satisfya:
 @contextmanager
 def execute_time_limit(timeout):
     def signal_handler(signum, frame):
-        raise TimeoutError("Timed out of limitation")
+        raise TimeoutError("Timed out of limitation.")
 
     signal.signal(signal.SIGALRM, signal_handler)
     signal.alarm(timeout)
@@ -575,29 +584,17 @@ def execute_time_limit(timeout):
         signal.alarm(0)
 
 
-class RetryException(Exception):
-    u_str = "Exception ({}) raised after {} tries."
-
-    def __init__(self, exp, max_retry):
-        self.exp = exp
-        self.max_retry = max_retry
-
-    def __unicode__(self):
-        return self.u_str.format(self.exp, self.max_retry)
-
-    def __str__(self):
-        return self.__unicode__()
-
-
 # Define retry util function
-def retry(func, max_retry=10):
+def retry(func: t.Callable, max_retry: int = 10, interval: int = 0):
     for retry_times in range(1, max_retry + 1):
         try:
             return func()
-        except Exception as e:
-            _logger.info(f"Failed to call {func.func}, in retry({retry_times}/{max_retry})")
+        except Exception:
+            _logger.info(f"Failed to run {func.__name__}, in retry({retry_times}/{max_retry})")
+        time.sleep(interval)
     else:
-        raise RetryException(e, max_retry)
+        raise RetryException(f"Failed at {func.__name__} after {max_retry} retry-times "
+                             f"with per {interval}s interval.")
 
 
 def wait_child_process(signum, frame):
@@ -617,3 +614,13 @@ def wait_child_process(signum, frame):
             _logger.warning('current process has no existing unwaited-for child processes.')
         else:
             raise
+
+
+if __name__ == '__main__':
+    def error():
+        raise ValueError
+
+    retry(error, 3, 2)
+    # from pprint import pprint
+    # pprint(dir(error))
+
