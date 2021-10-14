@@ -25,7 +25,8 @@ class _CodeNumException(BaseException):
             exp_type=type(self),
             exp_code=self.code,
             cause_data=self.cause_data,
-            error_info=self.args
+            error_info=None if not self.args else (self.args[0] if self.args.__len__() == 1
+                                                   else self.args)
         )
 
     __str__ = __repr__ = __unicode__
