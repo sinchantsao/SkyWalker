@@ -584,17 +584,27 @@ def execute_time_limit(timeout):
         signal.alarm(0)
 
 
-# Define retry util function
-def retry(func: t.Callable, max_retry: int = 10, interval: int = 0):
-    for retry_times in range(1, max_retry + 1):
-        try:
-            return func()
-        except Exception:
-            _logger.info(f"Failed to run {func.__name__}, in retry({retry_times}/{max_retry})")
-        time.sleep(interval)
-    else:
-        raise RetryException(f"Failed at {func.__name__} after {max_retry} retry-times "
-                             f"with per {interval}s interval.")
+class Retry:
+    def __init__(self, max_retry: int = 1, interval: int = 0):
+        self.max_retry = max_retry
+        self.interval = interval
+
+    def __call__(self, func):
+        def wrap(*args, **kwargs):
+            exception = None
+            for retry_times in range(1, self.max_retry + 1):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as exc:
+                    exception = exc
+                    _logger.info(f"Failed to run `{func.__name__}`, in retry({retry_times}/{self.max_retry})")
+                time.sleep(self.interval)
+            else:
+                raise RetryException(
+                    f"Raise {type(exception) if exception is not None else 'Unknown'} at `{func.__name__}` "
+                    f"after {self.max_retry} retry-times "
+                    f"with per {self.interval}s interval.")
+        return wrap
 
 
 def wait_child_process(signum, frame):
