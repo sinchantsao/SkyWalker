@@ -10,7 +10,7 @@ CurrentWorkDir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(os.path.dirname(CurrentWorkDir)))
 from X2.utlis import SettingTree
 from X2.XDB.avenger import get_default_client
-from X4.date import get_next_trade_date
+from X4.date.china import get_next_trade_date
 
 SettingTree.set_global_by_yaml(
     os.path.join(CurrentWorkDir, "ETFAccountInfo.yaml"),
@@ -265,9 +265,10 @@ def assemble_market_data(market_data: t.OrderedDict[str, t.Dict[str, pandas.Data
     data_panel.sort_index(inplace=True)
     return data_panel
 
+
 if __name__ == '__main__':
     import AccountInfo
-    import pdb
+
     account = AccountInfo["18369850"]
     tds = get_trade_dates("18369850", account.start)
     market_data = get_market_data("18369850", tds)

@@ -14,8 +14,8 @@ from X1.support import SysSupport
 from X2.XMessage.xmail import logger
 from X2.utlis import create_dir
 from X2.XDB.xceph import get_default_boto3sev, join_ceph_location, format_prefix, ceph_upload
+from X4.date import TimeStdFmt
 
-MailTimeFormat = "%Y-%m-%d %H:%M:%S"
 
 class _MailBase(object):
     def __init__(self, account: str,
@@ -64,8 +64,8 @@ class _MailBase(object):
             'sender': self.sender,
             'receivers': self.recipients,
             'cc': self.carboncopies,
-            'sendtime': self.sendtime.strftime(MailTimeFormat),
-            'recvtime': self.recvtime.strftime(MailTimeFormat),
+            'sendtime': self.sendtime.strftime(TimeStdFmt),
+            'recvtime': self.recvtime.strftime(TimeStdFmt),
         }
 
     def __str__(self):
