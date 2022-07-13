@@ -1,16 +1,38 @@
+-- SQL 脚本限定 MySQL 数据库使用, 暂未考虑适配其他 SQL 数据库
+
 CREATE DATABASE IF NOT EXISTS emails;
 USE emails;
 
-# ==================================================================
-#   @box: 用户理解是folder,是邮箱文件夹
-#   @uid: 邮箱中唯一标识的值,仅限定在某一box中唯一
-#
-#   邮件存在发送人邮箱(服务器)发送时间和接收者邮箱(服务器)收到的时间
-#   @sendtime: 跟据邮箱数据中Received字段获取最早时间
-#   @recvtime: 跟据邮箱数据中Received字段获取最晚时间
-# ==================================================================
+-- ==================================================================
+-- 用于管理邮箱账户, 结算邮箱可能有多个账户
+--
+-- 暂时没有考虑好密码应该怎么存储, 可能是加密的, 或者是明文的
+-- 总体来说, 明文更方便, 而且是内部管理使用的密码, 数据库不接入互联网
+-- 考虑明文是因为密码还需要用来登录爬取邮件的
+-- ==================================================================
+CREATE TABLE IF NOT EXISTS email_accounts (
+  email_id      INT          NOT NULL   AUTO_INCREMENT  COMMENT '邮箱账户内部管理ID',
+  email         VARCHAR(255) NOT NULL                   COMMENT '邮箱账户',
+  password      VARCHAR(255)                            COMMENT '邮箱密码',
+  register_time DATETIME     NOT NULL                   COMMENT '注册时间',
+  logout_time   DATETIME                                COMMENT '注销时间',
+  status        TINYINT(1)   NOT NULL   DEFAULT 0       COMMENT '邮箱账户状态, 0: 正常, 1: 注销, 2: 停用, 3: 删除(一般不会删除)',
+  PRIMARY KEY (id)
+);
+
+-- ==================================================================
+-- 用于管理邮箱账户的接收邮件摘要信息, 作为元数据管理方便查找邮件
+--
+--   @box: 用户理解是 folder, 是邮箱文件夹
+--   @uid: 邮箱中唯一标识的值, 仅限定在某一 box 中唯一
+--
+--   邮件存在发送人邮箱(服务器)发送时间和接收者邮箱(服务器)收到的时间
+--   @sendtime: 跟据邮箱数据中 Received 字段获取最早时间
+--   @recvtime: 跟据邮箱数据中 Received 字段获取最晚时间
+-- ==================================================================
 CREATE TABLE IF NOT EXISTS mails_summary(
-    user       VARCHAR(100)  NOT NULL   COMMENT '邮箱账户名称(不包含域名/邮箱厂商)',
+    mail_id    INT           NOT NULL   AUTO_INCREMENT  COMMENT '邮件内部管理ID',
+    email_id   INT           NOT NULL   COMMENT '邮箱账户内部管理ID',
     box        VARCHAR(50)   NOT NULL   COMMENT '邮箱文件夹',
     uid        INT           NOT NULL   COMMENT '邮件UID',
     subject    VARCHAR(2048) NOT NULL   COMMENT '邮件标题/主题',
@@ -19,43 +41,62 @@ CREATE TABLE IF NOT EXISTS mails_summary(
     cc         VARCHAR(5000) DEFAULT '' COMMENT '邮件抄送人',
     sendtime   DATETIME      NOT NULL   COMMENT '邮件发送时间',
     recvtime   DATETIME      NOT NULL   COMMENT '邮件接收时间',
-    PRIMARY KEY (user, box, uid)
+    PRIMARY KEY (mail_id),
+    INDEX (email_id, box, uid),
+    FOREIGN KEY (email_id) REFERENCES email_accounts(email_id) ON DELETE CASCADE
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4;
 
-# ==================================================================
-#   @fogname: 最好能保证这一值能够唯一
-#   @storage_type: 文件存储的存储器类型
-#       1. ceph
-#       2. avenger
-#       3. localhost(default)
-#   @storage_point: 在存储器中的位置,根据不同存储器有不同的理解
-#       1. 对于ceph(类s3存储)存储则为定位前缀,即bucket+用户自定义路径
-#       2. 对于Avenger存储则为Source名称
-#       3. 对于服务器本地存储则为绝对路径文件夹
-# ==================================================================
+-- ==================================================================
+-- 邮件爬取落地存储器管理, 落地存储可能有多种方式, 为了容灾也好, 方便多应用适配也好
+
+-- @storage_type: S3: s3, Linux 文件系统: localhost
+-- @storage_path: 落地存储路径, 对于 Linux 系统是绝对路径; 对于类 S3 存储是 bucket 名称
+-- ==================================================================
+CREATE TABLE IF NOT EXISTS mail_storages(
+    storage_id   INT            NOT NULL AUTO_INCREMENT COMMENT '存储器ID',
+    storage_type VARCHAR(255)   NOT NULL                COMMENT '存储器类型',
+    storage_ip   VARCHAR(255)   NOT NULL                COMMENT '存储器连接IP',
+    storage_port INT            NOT NULL                COMMENT '存储器连接端口',
+    storage_user VARCHAR(255)   NOT NULL                COMMENT '存储器登录用户名',
+    storage_pass VARCHAR(255)   NOT NULL                COMMENT '存储器登录密码',
+    storage_path VARCHAR(255)   NOT NULL                COMMENT '存储器路径',
+)
+
+-- ==================================================================
+-- 用于管理邮箱账户的接收邮件附件信息, 作为元数据管理方便查找附件文件
+--
+-- @box: 为了不必要的麻烦, 请务必使用英文字母创建邮箱文件夹
+-- ==================================================================
 CREATE TABLE IF NOT EXISTS mails_files(
-    user          VARCHAR(100) NOT NULL     COMMENT '邮箱账户名称(不包含域名/邮箱厂商)',
+    email_id      INT          NOT NULL     COMMENT '邮箱内部管理ID',
     box           VARCHAR(30)  NOT NULL     COMMENT '邮箱文件夹',
     uid           INT          NOT NULL     COMMENT '邮件UID',
-    fogname       VARCHAR(100)              COMMENT '文件存储名称(user_box_uid_md5[:5].ext)',
-    original_name VARCHAR(1000) NOT NULL    COMMENT '文件原名称',
-    storage_type  VARCHAR(50)  NOT NULL     COMMENT '存储形式名称/标记',
-    storage_point VARCHAR(100) NOT NULL     COMMENT '存储位置定位',
-    PRIMARY KEY (storage_type, storage_point, fogname),
-    FOREIGN KEY (user, box, uid)
-        REFERENCES mails_summary (user, box, uid)
+    fogname       VARCHAR(100)              COMMENT '文件存储名称({email_id}_{box}_{uid}_{md5[:5]}.{ext})',
+    original_name VARCHAR(1000)NOT NULL     COMMENT '文件原名称',
+    storage_id    INT          NOT NULL     COMMENT '存储器ID',
+    filesize      INT                       COMMENT '文件大小',
+    PRIMARY KEY (fogname),
+    INDEX (email_id, box, uid),
+    FOREIGN KEY (email_id, box, uid)
+        REFERENCES mails_summary (email_id, box, uid),
+    FOREIGN KEY (storage_id)
+        REFERENCES mail_storages(storage_id) ON DELETE CASCADE
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4;
 
-# ==================================================================
-# 下载失败的邮件信息储存,为了能够溯源错误以及重新下载
-# ==================================================================
+-- ==================================================================
+-- 下载失败的邮件信息储存,为了能够溯源错误以及重新下载
+-- ==================================================================
 CREATE TABLE IF NOT EXISTS error_download(
-    user      VARCHAR(100) NOT NULL COMMENT '邮箱账户名称(不包含域名/邮箱厂商)',
-    box       VARCHAR(30)  NOT NULL COMMENT '邮箱文件夹',
-    uid       INT          NOT NULL COMMENT '邮件UID',
-    error_msg TEXT,
-    PRIMARY KEY (user, box, uid)
+    error_id   INT          NOT NULL AUTO_INCREMENT COMMENT '错误ID',
+    email_id   VARCHAR(100) NOT NULL                COMMENT '邮箱内部管理ID',
+    box        VARCHAR(30)  NOT NULL                COMMENT '邮箱文件夹',
+    uid        INT          NOT NULL                COMMENT '邮件UID',
+    error_time DATETIME     NOT NULL                COMMENT '发生错误的时间',
+    error_msg  TEXT                                 COMMENT '运行错误信息',
+    redownload TINYINT(1)   NOT NULL DEFAULT 0      COMMENT '是否已经重新下载; 0: 未重新下载, 1: 已重新下载',
+    ignore     TINYINT(1)   NOT NULL DEFAULT 0      COMMENT '是否忽略错误; 0: 否, 1: 是',
+    INDEX (email_id, box, uid),
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4;
