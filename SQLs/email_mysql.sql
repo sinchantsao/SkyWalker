@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS email_accounts (
   register_time DATETIME     NOT NULL                   COMMENT '注册时间',
   logout_time   DATETIME                                COMMENT '注销时间',
   status        TINYINT(1)   NOT NULL   DEFAULT 0       COMMENT '邮箱账户状态, 0: 正常, 1: 注销, 2: 停用, 3: 删除(一般不会删除)',
-  PRIMARY KEY (id)
+  PRIMARY KEY (email_id)
 );
 
 -- ==================================================================
@@ -96,7 +96,28 @@ CREATE TABLE IF NOT EXISTS error_download(
     error_time DATETIME     NOT NULL                COMMENT '发生错误的时间',
     error_msg  TEXT                                 COMMENT '运行错误信息',
     redownload TINYINT(1)   NOT NULL DEFAULT 0      COMMENT '是否已经重新下载; 0: 未重新下载, 1: 已重新下载',
-    ignore     TINYINT(1)   NOT NULL DEFAULT 0      COMMENT '是否忽略错误; 0: 否, 1: 是',
-    INDEX (email_id, box, uid),
+    ignore_err TINYINT(1)   NOT NULL DEFAULT 0      COMMENT '是否忽略错误; 0: 否, 1: 是',
+    INDEX (email_id, box, uid)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4;
+
+
+-- ==================================================================
+-- 用于邮件文件预处理记录, 判定邮件相关文件是否属于某个文件类型
+-- 只有当文件被某一预处理文件处理过后, 才会被记录在这里
+--
+-- @fogname: 邮件文件唯一标识, 来自于 email 库中的 mail_files 表的 fogname 字段
+-- ==================================================================
+CREATE TABLE IF NOT EXISTS file_preprocess (
+    fogname                     VARCHAR(100) NOT NULL                               COMMENT '邮件文件唯一标识, 来自于 email 库中的 mail_files 表的 fogname 字段',
+    is_valuation                TINYINT(1)   NOT NULL DEFAULT 0                     COMMENT '是否为估值表文件',
+    is_stocktradeorder          TINYINT(1)   NOT NULL DEFAULT 0                     COMMENT '是否为股票成交对账单文件',
+    is_futuretradeorder         TINYINT(1)   NOT NULL DEFAULT 0                     COMMENT '是否为期货成交对账单文件',
+    is_optionsorder             TINYINT(1)   NOT NULL DEFAULT 0                     COMMENT '是否为期权成交对账单文件',
+    check_valuation_time        DATETIME     NOT NULL DEFAULT '0000-00-00 00:00:00' COMMENT '估值表文件的预处理时间',
+    check_stocktradeorder_time  DATETIME     NOT NULL DEFAULT '0000-00-00 00:00:00' COMMENT '股票成交对账单文件的预处理时间',
+    check_futuretradeorder_time DATETIME     NOT NULL DEFAULT '0000-00-00 00:00:00' COMMENT '期货成交对账单文件的预处理时间',
+    check_optionsorder_time     DATETIME     NOT NULL DEFAULT '0000-00-00 00:00:00' COMMENT '期权成交对账单文件的预处理时间',
+    PRIMARY KEY (fogname)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4;
